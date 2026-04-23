@@ -97,6 +97,7 @@ struct uterm_display {
 	unsigned int flags;
 	unsigned int width;
 	unsigned int height;
+	enum uterm_panel_orientation panel_orientation;
 
 	struct uterm_video *video;
 

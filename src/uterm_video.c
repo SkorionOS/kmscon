@@ -245,6 +245,15 @@ unsigned int uterm_display_get_height(struct uterm_display *disp)
 }
 
 SHL_EXPORT
+enum uterm_panel_orientation uterm_display_get_panel_orientation(struct uterm_display *disp)
+{
+	if (!disp)
+		return UTERM_PANEL_ORIENTATION_NORMAL;
+
+	return disp->panel_orientation;
+}
+
+SHL_EXPORT
 int uterm_display_get_state(struct uterm_display *disp)
 {
 	if (!disp || !disp->video)

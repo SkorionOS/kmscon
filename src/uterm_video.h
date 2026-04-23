@@ -83,6 +83,18 @@ enum uterm_video_action {
 	UTERM_REFRESH,
 };
 
+/*
+ * Rotation that needs to be applied to the rendered framebuffer to compensate
+ * for a panel mounted in a non-standard orientation (kernel "panel orientation"
+ * connector property). Values match the rotation in 90 degree CW steps.
+ */
+enum uterm_panel_orientation {
+	UTERM_PANEL_ORIENTATION_NORMAL = 0,
+	UTERM_PANEL_ORIENTATION_RIGHT,        /* render 90 CW */
+	UTERM_PANEL_ORIENTATION_UPSIDE_DOWN,  /* render 180 */
+	UTERM_PANEL_ORIENTATION_LEFT,         /* render 270 CW (i.e. 90 CCW) */
+};
+
 struct uterm_video_hotplug {
 	struct uterm_display *display;
 	int action;
@@ -150,6 +162,7 @@ void uterm_display_unregister_cb(struct uterm_display *disp, uterm_display_cb cb
 
 unsigned int uterm_display_get_width(struct uterm_display *disp);
 unsigned int uterm_display_get_height(struct uterm_display *disp);
+enum uterm_panel_orientation uterm_display_get_panel_orientation(struct uterm_display *disp);
 int uterm_display_get_state(struct uterm_display *disp);
 int uterm_display_set_dpms(struct uterm_display *disp, int state);
 int uterm_display_get_dpms(const struct uterm_display *disp);
