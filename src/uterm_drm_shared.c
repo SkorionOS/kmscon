@@ -135,6 +135,30 @@ static int set_drm_object_property(drmModeAtomicReq *req, struct drm_object *obj
 	return drmModeAtomicAddProperty(req, obj->id, prop_id, value);
 }
 
+/*
+ * Like set_drm_object_property() but silently returns 0 if the property does
+ * not exist on the object. Used for optional properties such as plane
+ * "rotation" that are not exposed by every driver.
+ */
+static int set_drm_object_property_optional(drmModeAtomicReq *req, struct drm_object *obj,
+					    const char *name, uint64_t value)
+{
+	int i;
+	uint32_t prop_id = 0;
+
+	for (i = 0; i < obj->props->count_props; i++) {
+		if (!strcmp(obj->props_info[i]->name, name)) {
+			prop_id = obj->props_info[i]->prop_id;
+			break;
+		}
+	}
+
+	if (prop_id == 0)
+		return 0;
+
+	return drmModeAtomicAddProperty(req, obj->id, prop_id, value);
+}
+
 static bool is_crtc_in_use(struct uterm_video *video, uint32_t crtc_id)
 {
 	struct shl_dlist *iter;
@@ -408,6 +432,20 @@ int uterm_drm_prepare_commit(int fd, struct uterm_drm_display *ddrm, drmModeAtom
 	if (set_drm_object_property(req, plane, "CRTC_W", width) < 0)
 		return -1;
 	if (set_drm_object_property(req, plane, "CRTC_H", height) < 0)
+		return -1;
+
+	/*
+	 * Force the plane "rotation" property back to rotate-0. Some drivers
+	 * (notably amdgpu when DRM_MODE_PANEL_ORIENTATION is set) leave a
+	 * non-zero rotation set on the primary plane after VT switches, which
+	 * would otherwise stack on top of kmscon's software rotation and flip
+	 * the console upside down on the second activation. The property is
+	 * optional and silently skipped on drivers that do not expose it.
+	 *
+	 * Bit values from drm_plane.h:
+	 *   DRM_MODE_ROTATE_0 = 1<<0 = 0x1
+	 */
+	if (set_drm_object_property_optional(req, plane, "rotation", 0x1) < 0)
 		return -1;
 
 	if (ddrm->damage_blob_id) {
@@ -1078,6 +1116,60 @@ static bool is_mode_null(drmModeModeInfoPtr mode)
 	return mode->hdisplay == 0;
 }
 
+/*
+ * Read the kernel "panel orientation" connector property and translate it into
+ * a uterm_panel_orientation value describing the rotation that needs to be
+ * applied to the rendered framebuffer to compensate for the panel mounting.
+ *
+ * The kernel-side enum strings come from drm_panel_orientation_quirks.c:
+ *   "Normal", "Upside Down", "Left Side Up", "Right Side Up".
+ */
+static enum uterm_panel_orientation read_panel_orientation(int fd, drmModeConnector *conn)
+{
+	drmModePropertyPtr prop;
+	uint64_t value = 0;
+	int i, j;
+	bool found = false;
+	enum uterm_panel_orientation result = UTERM_PANEL_ORIENTATION_NORMAL;
+
+	if (!conn)
+		return UTERM_PANEL_ORIENTATION_NORMAL;
+
+	for (i = 0; i < conn->count_props; ++i) {
+		prop = drmModeGetProperty(fd, conn->props[i]);
+		if (!prop)
+			continue;
+		if (strcmp(prop->name, "panel orientation") != 0) {
+			drmModeFreeProperty(prop);
+			continue;
+		}
+
+		value = conn->prop_values[i];
+		for (j = 0; j < prop->count_enums; ++j) {
+			if (prop->enums[j].value != value)
+				continue;
+			if (!strcmp(prop->enums[j].name, "Normal"))
+				result = UTERM_PANEL_ORIENTATION_NORMAL;
+			else if (!strcmp(prop->enums[j].name, "Upside Down"))
+				result = UTERM_PANEL_ORIENTATION_UPSIDE_DOWN;
+			else if (!strcmp(prop->enums[j].name, "Left Side Up"))
+				result = UTERM_PANEL_ORIENTATION_LEFT;
+			else if (!strcmp(prop->enums[j].name, "Right Side Up"))
+				result = UTERM_PANEL_ORIENTATION_RIGHT;
+			found = true;
+			break;
+		}
+		drmModeFreeProperty(prop);
+		break;
+	}
+
+	if (found && result != UTERM_PANEL_ORIENTATION_NORMAL)
+		log_info("connector %u panel orientation: %d (corrective rotation %d*90 CW)",
+			 conn->connector_id, (int)value, (int)result);
+
+	return result;
+}
+
 static void init_modes(struct uterm_display *disp, drmModeConnector *conn)
 {
 	struct uterm_video *video = disp->video;
@@ -1142,6 +1234,7 @@ static void bind_display(struct uterm_video *video, drmModeRes *res, drmModeConn
 
 	ddrm->connector.id = conn->connector_id;
 	disp->dpms = uterm_drm_get_dpms(vdrm->fd, conn);
+	disp->panel_orientation = read_panel_orientation(vdrm->fd, conn);
 	log_info("display %s DPMS is %s", disp->name, uterm_dpms_to_name(disp->dpms));
 
 	/* find a crtc for this connector */

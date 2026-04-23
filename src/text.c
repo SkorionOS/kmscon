@@ -122,6 +122,7 @@ static int new_text(struct kmscon_text *text, const char *backend, enum Orientat
 	text->record = record;
 	text->ops = record->data;
 	text->orientation = orientation;
+	text->user_orientation = orientation;
 
 	if (text->ops->init)
 		ret = text->ops->init(text);
@@ -176,6 +177,7 @@ int kmscon_text_new(struct kmscon_text **out, const char *backend, const char *r
 			log_debug("using: orientation: left");
 		}
 	}
+	text->user_orientation = text->orientation;
 
 	ret = new_text(text, backend, text->orientation);
 	if (ret) {
@@ -244,9 +246,24 @@ void kmscon_text_unref(struct kmscon_text *text)
  *
  * Returns: 0 on success, negative error code on failure.
  */
+/*
+ * Combine the user-requested rotation with the connector's "panel orientation"
+ * correction so that "normal" from the user's perspective always means the
+ * physically correct orientation for the panel.
+ *
+ * Both enums use the same numeric values for 0/90/180/270 CW so we can simply
+ * add them modulo 4.
+ */
+static enum Orientation effective_orientation(enum Orientation user,
+					      enum uterm_panel_orientation panel)
+{
+	return (enum Orientation)(((unsigned)user + (unsigned)panel) % 4);
+}
+
 int kmscon_text_set(struct kmscon_text *txt, struct kmscon_font *font, struct uterm_display *disp)
 {
 	int ret;
+	enum uterm_panel_orientation panel;
 
 	if (!txt || !font || !disp)
 		return -EINVAL;
@@ -255,6 +272,14 @@ int kmscon_text_set(struct kmscon_text *txt, struct kmscon_font *font, struct ut
 
 	txt->font = font;
 	txt->disp = disp;
+
+	panel = uterm_display_get_panel_orientation(disp);
+	txt->orientation = effective_orientation(txt->user_orientation, panel);
+	if (panel != UTERM_PANEL_ORIENTATION_NORMAL)
+		log_debug("display %s: panel orientation correction %d, "
+			  "user orientation %d, effective %d",
+			  uterm_display_name(disp), (int)panel,
+			  (int)txt->user_orientation, (int)txt->orientation);
 
 	if (txt->ops->set) {
 		ret = txt->ops->set(txt);
@@ -373,6 +398,15 @@ enum Orientation kmscon_text_get_orientation(struct kmscon_text *txt)
  */
 int kmscon_text_rotate(struct kmscon_text *txt, enum Orientation orientation)
 {
+	if (!txt)
+		return -EINVAL;
+
+	/*
+	 * The argument is the effective render orientation. We do not fold the
+	 * panel correction in again here, because callers (grab key handlers)
+	 * use kmscon_text_get_orientation() to read the current effective
+	 * orientation and then offset from there.
+	 */
 	if (txt->ops->rotate)
 		return txt->ops->rotate(txt, orientation);
 	return 0;

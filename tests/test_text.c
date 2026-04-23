@@ -14,6 +14,12 @@ void kmscon_font_ref(struct kmscon_font *font) {}
 void kmscon_font_unref(struct kmscon_font *font) {}
 void uterm_display_ref(struct uterm_display *disp) {}
 void uterm_display_unref(struct uterm_display *disp) {}
+const char *uterm_display_name(struct uterm_display *disp) { return "stub"; }
+enum uterm_panel_orientation
+uterm_display_get_panel_orientation(struct uterm_display *disp)
+{
+	return UTERM_PANEL_ORIENTATION_NORMAL;
+}
 
 static int dummy_set_calls;
 static int dummy_unset_calls;

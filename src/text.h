@@ -64,7 +64,13 @@ struct kmscon_text {
 	unsigned int rows;
 	bool rendering;
 	bool overflow_next;
+	/* effective orientation actually used for rendering: combination of
+	 * the user-requested orientation and the display's panel orientation
+	 * correction. Backends should always read this. */
 	enum Orientation orientation;
+	/* user-requested orientation (from --rotate or grab keys) before any
+	 * panel orientation correction. */
+	enum Orientation user_orientation;
 };
 
 struct kmscon_text_ops {
